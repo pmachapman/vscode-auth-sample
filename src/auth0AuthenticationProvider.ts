@@ -4,10 +4,23 @@ import { PromiseAdapter, promiseFromEvent } from "./util";
 import fetch from 'node-fetch';
 
 export const AUTH_TYPE = `auth0`;
-const AUTH_NAME = `Auth0`;
-const CLIENT_ID = `3GUryQ7ldAeKEuD2obYnppsnmj58eP5u`;
-const AUTH0_DOMAIN = `dev-txghew0y.us.auth0.com`;
-const SESSIONS_SECRET_KEY = `${AUTH_TYPE}.sessions`
+const AUTH_NAME = `Scripture Forge`;
+// DEV Credentials
+// NOTE: Your redirect_uri must be registered on our dev Auth0 for this to work
+const AUTH0_DOMAIN = `sil-appbuilder.auth0.com`;
+const CLIENT_ID = `aoAGb9Yx1H5WIsvCW6JJCteJhSa37ftH`;
+
+// QA Credentials
+// NOTE: Your redirect_uri must be registered on our QA Auth0 for this to work
+// const AUTH0_DOMAIN = `dev-sillsdev.auth0.com`;
+// const CLIENT_ID = `4eHLjo40mAEGFU6zUxdYjnpnC1K1Ydnj`;
+
+// LIVE Credentials
+// NOTE: Your redirect_uri must be registered on our Live Auth0 for this to work
+// const AUTH0_DOMAIN = `login.languagetechnology.org`;
+// const CLIENT_ID = `tY2wXn40fsL5VsPM4uIHNtU6ZUEXGeFn`;
+
+const SESSIONS_SECRET_KEY = `${AUTH_TYPE}.sessions`;
 
 class UriEventHandler extends EventEmitter<Uri> implements UriHandler {
 	public handleUri(uri: Uri) {
@@ -26,7 +39,7 @@ export class Auth0AuthenticationProvider implements AuthenticationProvider, Disp
     this._disposable = Disposable.from(
       authentication.registerAuthenticationProvider(AUTH_TYPE, AUTH_NAME, this, { supportsMultipleAccounts: false }),
       window.registerUriHandler(this._uriHandler)
-    )
+    );
   }
 
 	get onDidChangeSessions() {
@@ -78,7 +91,7 @@ export class Auth0AuthenticationProvider implements AuthenticationProvider, Disp
         scopes: []
       };
 
-      await this.context.secrets.store(SESSIONS_SECRET_KEY, JSON.stringify([session]))
+      await this.context.secrets.store(SESSIONS_SECRET_KEY, JSON.stringify([session]));
 
       this._sessionChangeEmitter.fire({ added: [session], removed: [], changed: [] });
 
@@ -147,7 +160,8 @@ export class Auth0AuthenticationProvider implements AuthenticationProvider, Disp
         ['redirect_uri', this.redirectUri],
         ['state', stateId],
         ['scope', scopes.join(' ')],
-        ['prompt', "login"]
+        ['prompt', 'login'],
+        ['audience', 'https://scriptureforge.org/']
       ]);
       const uri = Uri.parse(`https://${AUTH0_DOMAIN}/authorize?${searchParams.toString()}`);
       await env.openExternal(uri);
@@ -199,7 +213,7 @@ export class Auth0AuthenticationProvider implements AuthenticationProvider, Disp
     }
 
     resolve(access_token);
-  }
+  };
 
   /**
    * Get the user info from Auth0

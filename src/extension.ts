@@ -1,28 +1,21 @@
-import { Auth0AuthenticationProvider } from './auth0AuthenticationProvider';
-import { AUTH_TYPE, AzureADAuthenticationProvider } from './azureADAuthenticationProvider';
+import { AUTH_TYPE, Auth0AuthenticationProvider } from './auth0AuthenticationProvider';
 import * as vscode from 'vscode';
 
 export async function activate(context: vscode.ExtensionContext) {
 	const subscriptions = context.subscriptions;
+	// See https://github.com/sillsdev/web-xforge/blob/master/src/SIL.XForge.Scripture/ClientApp/src/xforge-common/auth.service.ts#L45
+	const scopes = ['openid', 'profile', 'email', 'sf_data', 'offline_access'];
 
 	subscriptions.push(
 		vscode.commands.registerCommand('vscode-auth0-authprovider.signIn', async () => {
-			const session = await vscode.authentication.getSession("auth0", [], { createIfNone: true });
+			const session = await vscode.authentication.getSession("auth0", scopes, { createIfNone: true });
 			console.log(session);
 		})
-	)
-
-	// subscriptions.push(
-	// 	new AzureADAuthenticationProvider(context)
-	// );
+	);
 
 	subscriptions.push(
 		new Auth0AuthenticationProvider(context)
 	);
-
-	// getSession();
-	// getMsSession();
-	// getMsDefaultSession();
 
 	getAuth0Session();
 
@@ -41,40 +34,21 @@ export async function activate(context: vscode.ExtensionContext) {
 
 const getAuth0Session = async () => {
 	const session = await vscode.authentication.getSession("auth0", ['profile'], { createIfNone: false });
+	// session.accessToken will have your JWT access token.
+	// This will be run on re-open
 	if (session) {
 		vscode.window.showInformationMessage(`Welcome back ${session.account.label}`);
 	}
-}
+};
 
 const getSession = async () => {
 	const session = await vscode.authentication.getSession(AUTH_TYPE, [], { createIfNone: false });
+	// session.accessToken will have your JWT access token.
+	// This will be run on login
 	if (session) {
-		vscode.window.showInformationMessage(`Welcome back ${session.account.label}`)
+		vscode.window.showInformationMessage(`Welcome back ${session.account.label}`);
 	}
-}
-
-const getMsSession = async () => {
-	const session = await vscode.authentication.getSession('microsoft', [
-		"VSCODE_CLIENT_ID:f3164c21-b4ca-416c-915c-299458eba95b", 
-		"VSCODE_TENANT:common", 
-		"https://graph.microsoft.com/User.Read"
-	], { createIfNone: false });
-
-	if (session) {
-		vscode.window.showInformationMessage(`Welcome back ${session.account.label}`)
-	}
-}
-
-const getMsDefaultSession = async () => {
-	const session = await vscode.authentication.getSession('microsoft', [
-		"https://graph.microsoft.com/User.Read",
-		"https://graph.microsoft.com/Calendar.Read"
-	], { createIfNone: false });
-
-	if (session) {
-		vscode.window.showInformationMessage(`Welcome back ${session.account.label}`)
-	}
-}
+};
 
 // this method is called when your extension is deactivated
 export function deactivate() {}

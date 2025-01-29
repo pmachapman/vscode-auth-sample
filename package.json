@@ -1,9 +1,9 @@
 {
-	"name": "vscode-auth0-authprovider",
-	"displayName": "Auth0",
-	"publisher": "eliostruyf",
+	"name": "auth-test",
+	"displayName": "AI Drafting",
+	"publisher": "pmachapman",
 	"description": "",
-	"version": "0.0.3",
+	"version": "0.0.4",
 	"engines": {
 		"vscode": "^1.66.0"
 	},
@@ -11,7 +11,7 @@
 		"Other"
 	],
 	"activationEvents": [
-		"onAuthenticationRequest:azuread",
+		"onAuthenticationRequest:auth0",
 		"onStartupFinished"
 	],
 	"main": "./out/extension.js",
@@ -20,7 +20,7 @@
       {
         "command": "vscode-auth0-authprovider.signIn",
         "title": "Sign in",
-        "category": "Auth0",
+        "category": "Scripture Forge",
         "icon": "$(sign-in)"
       }
 		],
