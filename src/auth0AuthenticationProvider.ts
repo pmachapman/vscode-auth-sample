@@ -2,6 +2,7 @@ import { authentication, AuthenticationProvider, AuthenticationProviderAuthentic
 import { v4 as uuid } from 'uuid';
 import { PromiseAdapter, promiseFromEvent } from "./util";
 import fetch from 'node-fetch';
+import * as crypto from 'crypto';
 
 export const AUTH_TYPE = `auth0`;
 const AUTH_NAME = `Scripture Forge`;
@@ -32,8 +33,9 @@ export class Auth0AuthenticationProvider implements AuthenticationProvider, Disp
 	private _sessionChangeEmitter = new EventEmitter<AuthenticationProviderAuthenticationSessionsChangeEvent>();
   private _disposable: Disposable;
   private _pendingStates: string[] = [];
-  private _codeExchangePromises = new Map<string, { promise: Promise<string>; cancel: EventEmitter<void> }>();
+  private _codeExchangePromises = new Map<string, { promise: Promise<any>; cancel: EventEmitter<void> }>();
   private _uriHandler = new UriEventHandler();
+  private _verifier: Buffer = crypto.randomBytes(32);
   
   constructor(private readonly context: ExtensionContext) {
     this._disposable = Disposable.from(
@@ -79,11 +81,12 @@ export class Auth0AuthenticationProvider implements AuthenticationProvider, Disp
         throw new Error(`Auth0 login failure`);
       }
 
-      const userinfo: { name: string, email: string } = await this.getUserInfo(token);
+      const userinfo: { name: string, email: string } = await this.getUserInfo(token.access_token);
 
+      // TODO: Store token.refresh_token securely
       const session: AuthenticationSession = {
         id: uuid(),
-        accessToken: token,
+        accessToken: token.access_token,
         account: {
           label: userinfo.name,
           id: userinfo.email
@@ -129,15 +132,44 @@ export class Auth0AuthenticationProvider implements AuthenticationProvider, Disp
 		this._disposable.dispose();
 	}
 
+  private async getAccessAndRefreshTokens(code: string) : Promise<any> {
+    return await window.withProgress<string>({
+			location: ProgressLocation.Notification,
+			title: "Getting refresh token...",
+			cancellable: true
+		}, async (_, token) => {
+
+      const searchParams = new URLSearchParams([
+        ['grant_type', 'authorization_code'],
+        ['client_id', CLIENT_ID],
+        ['code_verifier', this.base64UrlEncode(this._verifier)],
+        ['code', code],
+        ['redirect_uri', this.redirectUri],
+      ]);
+      const response = await fetch(`https://${AUTH0_DOMAIN}/oauth/token`, {
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded'
+        },
+        method: 'POST',
+        body: searchParams.toString(),
+      });
+      return await response.json();
+    });
+  }
+
   /**
    * Log in to Auth0
    */
-  private async login(scopes: string[] = []) {
+  private async login(scopes: string[] = []): Promise<any> {
     return await window.withProgress<string>({
 			location: ProgressLocation.Notification,
 			title: "Signing in to Auth0...",
 			cancellable: true
 		}, async (_, token) => {
+
+      // Generate a new code verifier for PKCE
+      this._verifier = crypto.randomBytes(32);
+
       const stateId = uuid();
 
       this._pendingStates.push(stateId);
@@ -153,10 +185,22 @@ export class Auth0AuthenticationProvider implements AuthenticationProvider, Disp
       if (!scopes.includes('email')) {
         scopes.push('email');
       }
+      if (!scopes.includes('offline_access')) {
+        scopes.push('offline_access');
+      }
+      if (!scopes.includes('sf_data')) {
+        scopes.push('sf_data');
+      }
+
+      // Create the code challenge
+      // Auth0 requires a base64url encoded sha256 hash of the base64url encoded code verifier!!!!
+      const codeChallenge = this.base64UrlEncode(this.sha256(Buffer.from(this.base64UrlEncode(this._verifier), 'utf8')));
 
       const searchParams = new URLSearchParams([
-        ['response_type', "token"],
+        ['response_type', 'code'],
         ['client_id', CLIENT_ID],
+        ['code_challenge', codeChallenge],
+        ['code_challenge_method', 'S256'],
         ['redirect_uri', this.redirectUri],
         ['state', stateId],
         ['scope', scopes.join(' ')],
@@ -168,7 +212,7 @@ export class Auth0AuthenticationProvider implements AuthenticationProvider, Disp
 
       let codeExchangePromise = this._codeExchangePromises.get(scopeString);
       if (!codeExchangePromise) {
-        codeExchangePromise = promiseFromEvent(this._uriHandler.event, this.handleUri(scopes));
+        codeExchangePromise = promiseFromEvent(this._uriHandler.event, this.handleUri());
         this._codeExchangePromises.set(scopeString, codeExchangePromise);
       }
 
@@ -191,14 +235,34 @@ export class Auth0AuthenticationProvider implements AuthenticationProvider, Disp
    * @param scopes 
    * @returns 
    */
-  private handleUri: (scopes: readonly string[]) => PromiseAdapter<Uri, string> = 
-  (scopes) => async (uri, resolve, reject) => {
-    const query = new URLSearchParams(uri.fragment);
-    const access_token = query.get('access_token');
+  private handleUri: () => PromiseAdapter<Uri, any> = 
+  () => async (uri, resolve, reject) => {
+    const query = new URLSearchParams(uri.query);
+    const code = query.get('code');
+    if (!code) {
+      reject(new Error('No code'));
+      return;
+    }
+
+    // Get the access and refresh tokens
+    var tokens = await this.getAccessAndRefreshTokens(code);
+    // Possible Fields: 
+    //
+    // access_token: string
+    // id_token: string
+    // refresh_token: string /* NOTE: This requires the offline_access scope */
+    // token_type: string
+    // scope: string
+    // expires_in: number
+
     const state = query.get('state');
 
-    if (!access_token) {
-      reject(new Error('No token'));
+    if (!tokens.access_token) {
+      reject(new Error('No access token'));
+      return;
+    }
+    if (!tokens.refresh_token) {
+      reject(new Error('No refresh token'));
       return;
     }
     if (!state) {
@@ -212,7 +276,7 @@ export class Auth0AuthenticationProvider implements AuthenticationProvider, Disp
       return;
     }
 
-    resolve(access_token);
+    resolve(tokens);
   };
 
   /**
@@ -227,5 +291,16 @@ export class Auth0AuthenticationProvider implements AuthenticationProvider, Disp
       }
     });
     return await response.json();
+  }
+
+  private base64UrlEncode(buffer: Buffer): string {
+    return buffer.toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=/g, '');
+  }
+
+  private sha256(buffer: Buffer): Buffer {
+    return crypto.createHash('sha256').update(buffer).digest();
   }
 }
